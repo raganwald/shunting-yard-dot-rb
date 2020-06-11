@@ -17,6 +17,43 @@ module ShuntingYard
 
   module_function :lex
 
+  ARITHMETIC = {
+    operators: {
+      '+' => {
+        symbol: :+,
+        type: 'infix',
+        precedence: 1,
+        fn: lambda { |a, b| a + b }
+      },
+      '-' => {
+        symbol: :-,
+        type: 'infix',
+        precedence: 1,
+        fn: lambda { |a, b| a - b }
+      },
+      '*' => {
+        symbol: :*,
+        type: 'infix',
+        precedence: 3,
+        fn: lambda { |a, b| a * b }
+      },
+      '/' => {
+        symbol: :/,
+        type: 'infix',
+        precedence: 2,
+        fn: lambda { |a, b| a / b }
+      },
+      '!' => {
+        symbol: :!,
+        type: 'postfix',
+        precedence: 4,
+        fn: lambda { |n| (1..n).reduce(&:*) }
+      }
+    },
+    defaultOperator: '*',
+    toValue: lambda { |n| +(n.to_i) }
+  }
+
   private
 
   def split_strings_on_significant_characters(strings, characters = [])
