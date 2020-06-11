@@ -4,7 +4,7 @@ module ShuntingYard
   # takes as input raw text, returns an array of symbols
   # config.operators is a dictionary, with each key being an operator
   # this version only supports single-character operators
-  def self.lex(config, raw)
+  def lex(config, raw)
     operators = config[:operators].keys.map(&:to_s)
     parentheses = ['(', ')']
     significant_characters = operators.concat(parentheses)
@@ -15,7 +15,11 @@ module ShuntingYard
     split_strings_on_significant_characters(strings, significant_characters)
   end
 
-  def self.split_strings_on_significant_characters(strings, characters = [])
+  module_function :lex
+
+  private
+
+  def split_strings_on_significant_characters(strings, characters = [])
     if characters.empty?
       strings
     else
@@ -29,7 +33,7 @@ module ShuntingYard
 
   # split the chunks around significant characters
   # but keep the characters
-  def self.split_on_a_significant_character(str, character)
+  def split_on_a_significant_character(str, character)
     if str.start_with?(character)
       [character].concat(split_on_a_significant_character(str[1..-1], character))
     elsif str.end_with?(character)
