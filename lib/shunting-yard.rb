@@ -18,7 +18,7 @@ module ShuntingYard
       split_strings_on_significant_characters(strings, significant_characters)
     end
 
-    def compile(lexed_infix_expression, config)
+    def compile(config, lexed_infix_expression)
 
       operators_config = config[:operators].clone
       default_operator = config[:default_operator]
@@ -179,6 +179,7 @@ module ShuntingYard
     end
 
     def split_strings_on_significant_characters(strings, characters = [])
+      puts "strings: #{strings.inspect}"
       if characters.empty?
         strings
       else
@@ -193,11 +194,14 @@ module ShuntingYard
     # split the chunks around significant characters
     # but keep the characters
     def split_on_a_significant_character(str, character)
+      if str.empty?
+        []
       if str.start_with?(character)
         [character].concat(split_on_a_significant_character(str[1..-1], character))
       elsif str.end_with?(character)
         split_on_a_significant_character(str[0..-2], character).concat([character])
       else
+        puts '---', str.inspect, character.inspect, str.split(character).inspect
         chunks = str.split(character)
         first = chunks.first
         rest = chunks[1..-1].flat_map { |chunk| [character, chunk] }
@@ -246,4 +250,4 @@ module ShuntingYard
 
 end
 
-ShuntingYard::lex(ShuntingYard::ARITHMETIC, '(1*2)/3*4!')
+ShuntingYard.lex(ShuntingYard::ARITHMETIC, '1 + 2')
