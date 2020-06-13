@@ -1,5 +1,7 @@
 # coding: utf-8
 
+require 'set'
+
 module ShuntingYard
 
   class << self
@@ -297,8 +299,41 @@ module ShuntingYard
       default_operator: '*',
       to_value: lambda { |n| +(n.to_i) }
     }
+
+    # Compiles a memebership test lambda
+    # A membership test lambda is of the form lambda { |*args| boolean }
+    # We compose them via composer lambdas. The binary
+    # lambda composer is lambda { |boolean, boolean| boolean }
+
+    THUNK_INTERSECTION = lambda { |a, b| a[] && b[] }
+    THUNK_UNION = lambda { |a, b| a[] || b[] }
+
+    def self.binary_membership(thunk_composer)
+      lambda do |test1, test2|
+        lambda { |*args| thunk_composer[ lambda { test1[*args] }, lambda { test2[*args] }] }
+      end
+    end
+
+    MEMBERSHIP = {
+      operators: {
+        '∩' => {
+          type: 'infix',
+          precedence: 3,
+          lda: binary_membership(THUNK_INTERSECTION)
+        },
+        '∪' => {
+          type: 'infix',
+          precedence: 3,
+          lda: binary_membership(THUNK_UNION)
+        }
+      },
+      default_operator: '*',
+      to_value: lambda { |symbol| lambda { |flags = {}| flags && !!flags[symbol.to_sym] } }
+    }
   end
 
 end
 
-ShuntingYard.run(ShuntingYard::Example::ARITHMETIC, '3! + 4*5')
+membership_test = ShuntingYard.run(ShuntingYard::Example::MEMBERSHIP, 'tall ∩ thin ∩ goodlooking')
+
+membership_test[]
