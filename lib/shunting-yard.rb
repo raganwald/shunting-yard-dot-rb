@@ -31,7 +31,7 @@ module ShuntingYard
         elsif something.is_a?(String)
           something
         else
-          error(`#{something} is not a value`)
+          error("#{something} is not a value")
         end
       end
 
@@ -163,13 +163,54 @@ module ShuntingYard
           opSymbol = operators_config[op][:symbol]
           rpn.push(opSymbol)
         else
-          error(`Don't know how to push operator #{op}`)
+          error("Don't know how to push operator #{op}")
         end
       end
 
       rpn
     end
 
+    def run (config, rpn)
+      operators = config[:operators]
+      to_value = config[:to_value]
+
+      lambdas = new Hash do |hash, symbol|
+        hash[symbol] = operators[symbol][:lda]
+      end
+
+      stack = []
+
+      lexed_infix_expression.each do |element|
+        if element.is_a? String
+          stack.push(to_value[element])
+        elsif lambdas.has_key?(element)
+          lda = lambdas[:element]
+          arity = lda.arity
+
+          if stack.length < arity
+            error("Not enough values on the stack to use ${element}")
+          else
+            indexed_parameters = []
+
+            arity.times do
+              indexed_parameters.unshift(stack.pop())
+            end
+
+            stack.push(lda.call(*indexed_parameters))
+          end
+        else
+          error("Don't know what to do with ${element}'")
+        end
+      end
+
+      if stack.empty?
+        nil
+      elsif stack.length > 1
+        error("should only be one value to return, but there were ${stack.length} values on the stack")
+      else
+        stack.first
+      end
+    end
 
     private
 
@@ -179,7 +220,6 @@ module ShuntingYard
     end
 
     def split_strings_on_significant_characters(strings, characters = [])
-      puts "strings: #{strings.inspect}"
       if characters.empty?
         strings
       else
@@ -196,12 +236,11 @@ module ShuntingYard
     def split_on_a_significant_character(str, character)
       if str.empty?
         []
-      if str.start_with?(character)
+      elsif str.start_with?(character)
         [character].concat(split_on_a_significant_character(str[1..-1], character))
       elsif str.end_with?(character)
         split_on_a_significant_character(str[0..-2], character).concat([character])
       else
-        puts '---', str.inspect, character.inspect, str.split(character).inspect
         chunks = str.split(character)
         first = chunks.first
         rest = chunks[1..-1].flat_map { |chunk| [character, chunk] }
@@ -211,42 +250,44 @@ module ShuntingYard
 
   end
 
-  ARITHMETIC = {
-    operators: {
-      '+' => {
-        symbol: :+,
-        type: 'infix',
-        precedence: 1,
-        fn: lambda { |a, b| a + b }
+  module Example
+    ARITHMETIC = {
+      operators: {
+        '+' => {
+          symbol: :+,
+          type: 'infix',
+          precedence: 1,
+          lda: lambda { |a, b| a + b }
+        },
+        '-' => {
+          symbol: :-,
+          type: 'infix',
+          precedence: 1,
+          lda: lambda { |a, b| a - b }
+        },
+        '*' => {
+          symbol: :*,
+          type: 'infix',
+          precedence: 3,
+          lda: lambda { |a, b| a * b }
+        },
+        '/' => {
+          symbol: :/,
+          type: 'infix',
+          precedence: 2,
+          lda: lambda { |a, b| a / b }
+        },
+        '!' => {
+          symbol: :!,
+          type: 'postfix',
+          precedence: 4,
+          lda: lambda { |n| (1..n).reduce(&:*) }
+        }
       },
-      '-' => {
-        symbol: :-,
-        type: 'infix',
-        precedence: 1,
-        fn: lambda { |a, b| a - b }
-      },
-      '*' => {
-        symbol: :*,
-        type: 'infix',
-        precedence: 3,
-        fn: lambda { |a, b| a * b }
-      },
-      '/' => {
-        symbol: :/,
-        type: 'infix',
-        precedence: 2,
-        fn: lambda { |a, b| a / b }
-      },
-      '!' => {
-        symbol: :!,
-        type: 'postfix',
-        precedence: 4,
-        fn: lambda { |n| (1..n).reduce(&:*) }
-      }
-    },
-    default_operator: '*',
-    toValue: lambda { |n| +(n.to_i) }
-  }
+      default_operator: '*',
+      to_value: lambda { |n| +(n.to_i) }
+    }
+  end
 
 end
 
