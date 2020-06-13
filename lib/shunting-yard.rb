@@ -26,13 +26,13 @@ module ShuntingYard
       elsif input.is_a?(Array)
         operators = config[:operators]
         default_operator = config[:default_operator]
-        escape_symbol = config[:escape_symbol] || '`'
+        escape_token = config[:escape_token] || '`'
         escaped_value = config[:escaped_value] || lambda { |s| s }
 
         representation_of = lambda do |something|
           if operators.has_key?(something)
             something.to_sym
-          elsif something.is_a?(String)
+          elsif something.is_a?(Symbol) || something.is_a?(String)
             something
           else
             error("#{something} is neither an operator nor a value")
@@ -45,7 +45,7 @@ module ShuntingYard
         is_prefix = lambda { |symbol| type_of[symbol]== 'prefix' }
         is_postfix = lambda { |symbol| type_of[symbol]== 'postfix' }
         is_combinator = lambda { |symbol| is_infix[symbol] || is_prefix[symbol] || is_postfix[symbol] }
-        is_escape = lambda { |symbol| symbol == escape_symbol }
+        is_escape = lambda { |symbol| symbol == escape_token }
         awaits_value = lambda { |symbol| is_infix[symbol] || is_prefix[symbol] }
 
         operator_stack = []
@@ -53,39 +53,40 @@ module ShuntingYard
         awaiting_value = true
 
         while input.length > 0 do
-          symbol = input.shift
+          token = input.shift
+          error("All tokens should be strings, but #{token.inspect} is not") unless token.is_a? String
 
-          if is_escape[symbol]
+          if is_escape[token]
             if input.empty?
-              error('Escape symbol #{escape_symbol} has no following symbol')
+              error('Escape token #{escape_token} has no following token')
             else
-              value_symbol = input.shift
+              value_token = input.shift
 
               if awaiting_value
-                # push the escaped value of the symbol
+                # push the escaped value of the token
 
-                rpn.push(escaped_value[value_symbol])
+                rpn.push(escaped_value[value_token])
               else
                 # value catenation
 
-                input.unshift(value_symbol)
-                input.unshift(escape_symbol)
+                input.unshift(value_token)
+                input.unshift(escape_token)
                 input.unshift(default_operator)
               end
               awaiting_value = false
             end
-          elsif symbol == '(' && awaiting_value
+          elsif token == '(' && awaiting_value
             # opening parenthesis case, going to build
             # a value
-            operator_stack.push(symbol)
+            operator_stack.push(token)
             awaiting_value = true
-          elsif symbol == '('
+          elsif token == '('
             # value catenation
 
-            input.unshift(symbol)
+            input.unshift(token)
             input.unshift(default_operator)
             awaiting_value = false
-          elsif symbol == ')'
+          elsif token == ')'
             # closing parenthesis case, clear the
             # operator stack
 
@@ -101,12 +102,12 @@ module ShuntingYard
             else
               error('Unbalanced parentheses')
             end
-          elsif is_prefix[symbol]
+          elsif is_prefix[token]
             if awaiting_value
-              precedence = operators[symbol][:precedence]
+              precedence = operators[token][:precedence]
 
               # pop higher-precedence operators off the operator stack
-              while is_combinator[symbol] && operator_stack.length > 0 && operator_stack.last != '(' do
+              while is_combinator[token] && operator_stack.length > 0 && operator_stack.last != '(' do
                 opPrecedence = operators[operator_stack.last][:precedence]
 
                 if precedence < opPrecedence
@@ -118,20 +119,20 @@ module ShuntingYard
                 end
               end
 
-              operator_stack.push(symbol)
-              awaiting_value = awaits_value[symbol]
+              operator_stack.push(token)
+              awaiting_value = awaits_value[token]
             else
               # value catenation
 
-              input.unshift(symbol)
+              input.unshift(token)
               input.unshift(default_operator)
               awaiting_value = false
             end
-          elsif is_combinator[symbol]
-            precedence = operators[symbol][:precedence]
+          elsif is_combinator[token]
+            precedence = operators[token][:precedence]
 
             # pop higher-precedence operators off the operator stack
-            while is_combinator[symbol] && operator_stack.length > 0 && operator_stack.last != '(' do
+            while is_combinator[token] && operator_stack.length > 0 && operator_stack.last != '(' do
               opPrecedence = operators[operator_stack.last][:precedence]
 
               if precedence < opPrecedence
@@ -143,17 +144,17 @@ module ShuntingYard
               end
             end
 
-            operator_stack.push(symbol)
-            awaiting_value = awaits_value[symbol]
+            operator_stack.push(token)
+            awaiting_value = awaits_value[token]
           elsif awaiting_value
             # as expected, go straight to the output
 
-            rpn.push(representation_of[symbol])
+            rpn.push(representation_of[token])
             awaiting_value = false
           else
             # value catenation
 
-            input.unshift(symbol)
+            input.unshift(token)
             input.unshift(default_operator)
             awaiting_value = false
           end
@@ -163,9 +164,8 @@ module ShuntingYard
         while operator_stack.length > 0 do
           op = operator_stack.pop
 
-          if operators.has_key?(op)
-            opSymbol = operators[op][:symbol]
-            rpn.push(opSymbol)
+          if operators.has_key?(op.to_s)
+            rpn.push(representation_of[op])
           else
             error("Don't know how to push operator #{op}")
           end
@@ -220,7 +220,7 @@ module ShuntingYard
         if stack.empty?
           nil
         elsif stack.length > 1
-          error("should only be one value to return, but there were ${stack.length} values on the stack")
+          error("should only be one value to return, but there were #{stack.length} values on the stack: #{stack.inspect}")
         else
           stack.first
         end
@@ -269,31 +269,26 @@ module ShuntingYard
     ARITHMETIC = {
       operators: {
         '+' => {
-          symbol: :+,
           type: 'infix',
           precedence: 1,
           lda: lambda { |a, b| a + b }
         },
         '-' => {
-          symbol: :-,
           type: 'infix',
           precedence: 1,
           lda: lambda { |a, b| a - b }
         },
         '*' => {
-          symbol: :*,
           type: 'infix',
           precedence: 3,
           lda: lambda { |a, b| a * b }
         },
         '/' => {
-          symbol: :/,
           type: 'infix',
           precedence: 2,
           lda: lambda { |a, b| a / b }
         },
         '!' => {
-          symbol: :!,
           type: 'postfix',
           precedence: 4,
           lda: lambda { |n| (1..n).reduce(&:*) }
@@ -306,4 +301,4 @@ module ShuntingYard
 
 end
 
-ShuntingYard.run(ShuntingYard::Example::ARITHMETIC, '1 + 2')
+ShuntingYard.run(ShuntingYard::Example::ARITHMETIC, '3! + 4*5')
