@@ -7,103 +7,132 @@ module ShuntingYard
     # takes as input raw text, returns an array of symbols
     # config.operators is a dictionary, with each key being an operator
     # this version only supports single-character operators
-    def lex(config, raw)
+    def lex(config, input)
+      error("Don't know how to lex #{input.inspect}") unless input.is_a?(String)
+
       operators = config[:operators].keys.map(&:to_s)
       parentheses = ['(', ')']
       significant_characters = operators.concat(parentheses)
 
       # split on whitespace
-      strings = raw.split /\s+/
+      strings = input.split /\s+/
 
       split_strings_on_significant_characters(strings, significant_characters)
     end
 
-    def compile(config, lexed_infix_expression)
+    def compile(config, input)
+      if input.is_a?(String)
+        compile(config, lex(config, input))
+      elsif input.is_a?(Array)
+        operators = config[:operators]
+        default_operator = config[:default_operator]
+        escape_symbol = config[:escape_symbol] || '`'
+        escaped_value = config[:escaped_value] || lambda { |s| s }
 
-      operators_config = config[:operators].clone
-      default_operator = config[:default_operator]
-      escape_symbol = config[:escape_symbol] || '`'
-      escaped_value = config[:escaped_value] || lambda { |s| s }
-
-      representation_of = lambda do |something|
-        if operators_config.has_key?(something)
-          operators_config[something].symbol
-        elsif something.is_a?(String)
-          something
-        else
-          error("#{something} is not a value")
-        end
-      end
-
-      type_of = lambda { |symbol| operators_config.has_key?(symbol) ? operators_config[symbol][:type] : 'value' }
-
-      is_infix = lambda { |symbol| type_of[symbol]== 'infix' }
-      is_prefix = lambda { |symbol| type_of[symbol]== 'prefix' }
-      is_postfix = lambda { |symbol| type_of[symbol]== 'postfix' }
-      is_combinator = lambda { |symbol| is_infix[symbol] || is_prefix[symbol] || is_postfix[symbol] }
-      is_escape = lambda { |symbol| symbol == escape_symbol }
-      awaits_value = lambda { |symbol| is_infix[symbol] || is_prefix[symbol] }
-
-      operator_stack = []
-      rpn = []
-      awaiting_value = true
-
-      while lexed_infix_expression.length > 0 do
-        symbol = lexed_infix_expression.shift
-
-        if is_escape[symbol]
-          if lexed_infix_expression.empty?
-            error('Escape symbol #{escape_symbol} has no following symbol')
+        representation_of = lambda do |something|
+          if operators.has_key?(something)
+            something.to_sym
+          elsif something.is_a?(String)
+            something
           else
-            value_symbol = lexed_infix_expression.shift
+            error("#{something} is neither an operator nor a value")
+          end
+        end
 
+        type_of = lambda { |symbol| operators.has_key?(symbol) ? operators[symbol][:type] : 'value' }
+
+        is_infix = lambda { |symbol| type_of[symbol]== 'infix' }
+        is_prefix = lambda { |symbol| type_of[symbol]== 'prefix' }
+        is_postfix = lambda { |symbol| type_of[symbol]== 'postfix' }
+        is_combinator = lambda { |symbol| is_infix[symbol] || is_prefix[symbol] || is_postfix[symbol] }
+        is_escape = lambda { |symbol| symbol == escape_symbol }
+        awaits_value = lambda { |symbol| is_infix[symbol] || is_prefix[symbol] }
+
+        operator_stack = []
+        rpn = []
+        awaiting_value = true
+
+        while input.length > 0 do
+          symbol = input.shift
+
+          if is_escape[symbol]
+            if input.empty?
+              error('Escape symbol #{escape_symbol} has no following symbol')
+            else
+              value_symbol = input.shift
+
+              if awaiting_value
+                # push the escaped value of the symbol
+
+                rpn.push(escaped_value[value_symbol])
+              else
+                # value catenation
+
+                input.unshift(value_symbol)
+                input.unshift(escape_symbol)
+                input.unshift(default_operator)
+              end
+              awaiting_value = false
+            end
+          elsif symbol == '(' && awaiting_value
+            # opening parenthesis case, going to build
+            # a value
+            operator_stack.push(symbol)
+            awaiting_value = true
+          elsif symbol == '('
+            # value catenation
+
+            input.unshift(symbol)
+            input.unshift(default_operator)
+            awaiting_value = false
+          elsif symbol == ')'
+            # closing parenthesis case, clear the
+            # operator stack
+
+            while operator_stack.length > 0 && operator_stack.last != '(' do
+              op = operator_stack.pop
+
+              rpn.push(representation_of[op])
+            end
+
+            if operator_stack.last == '('
+              operator_stack.pop
+              awaiting_value = false
+            else
+              error('Unbalanced parentheses')
+            end
+          elsif is_prefix[symbol]
             if awaiting_value
-              # push the escaped value of the symbol
+              precedence = operators[symbol][:precedence]
 
-              rpn.push(escaped_value[value_symbol])
+              # pop higher-precedence operators off the operator stack
+              while is_combinator[symbol] && operator_stack.length > 0 && operator_stack.last != '(' do
+                opPrecedence = operators[operator_stack.last][:precedence]
+
+                if precedence < opPrecedence
+                  op = operator_stack.pop
+
+                  rpn.push(representation_of[op])
+                else
+                  break
+                end
+              end
+
+              operator_stack.push(symbol)
+              awaiting_value = awaits_value[symbol]
             else
               # value catenation
 
-              lexed_infix_expression.unshift(value_symbol)
-              lexed_infix_expression.unshift(escape_symbol)
-              lexed_infix_expression.unshift(default_operator)
+              input.unshift(symbol)
+              input.unshift(default_operator)
+              awaiting_value = false
             end
-            awaiting_value = false
-          end
-        elsif symbol == '(' && awaiting_value
-          # opening parenthesis case, going to build
-          # a value
-          operator_stack.push(symbol)
-          awaiting_value = true
-        elsif symbol == '('
-          # value catenation
-
-          lexed_infix_expression.unshift(symbol)
-          lexed_infix_expression.unshift(default_operator)
-          awaiting_value = false
-        elsif symbol == ')'
-          # closing parenthesis case, clear the
-          # operator stack
-
-          while operator_stack.length > 0 && operator_stack.last != '(' do
-            op = operator_stack.pop
-
-            rpn.push(representation_of[op])
-          end
-
-          if operator_stack.last == '('
-            operator_stack.pop
-            awaiting_value = false
-          else
-            error('Unbalanced parentheses')
-          end
-        elsif is_prefix[symbol]
-          if awaiting_value
-            precedence = operators_config[symbol][:precedence]
+          elsif is_combinator[symbol]
+            precedence = operators[symbol][:precedence]
 
             # pop higher-precedence operators off the operator stack
             while is_combinator[symbol] && operator_stack.length > 0 && operator_stack.last != '(' do
-              opPrecedence = operators_config[operator_stack.last][:precedence]
+              opPrecedence = operators[operator_stack.last][:precedence]
 
               if precedence < opPrecedence
                 op = operator_stack.pop
@@ -116,99 +145,85 @@ module ShuntingYard
 
             operator_stack.push(symbol)
             awaiting_value = awaits_value[symbol]
+          elsif awaiting_value
+            # as expected, go straight to the output
+
+            rpn.push(representation_of[symbol])
+            awaiting_value = false
           else
             # value catenation
 
-            lexed_infix_expression.unshift(symbol)
-            lexed_infix_expression.unshift(default_operator)
+            input.unshift(symbol)
+            input.unshift(default_operator)
             awaiting_value = false
           end
-        elsif is_combinator[symbol]
-          precedence = operators_config[symbol][:precedence]
+        end
 
-          # pop higher-precedence operators off the operator stack
-          while is_combinator[symbol] && operator_stack.length > 0 && operator_stack.last != '(' do
-            opPrecedence = operators_config[operator_stack.last][:precedence]
+        # pop remaining symbols off the stack and push them
+        while operator_stack.length > 0 do
+          op = operator_stack.pop
 
-            if precedence < opPrecedence
-              op = operator_stack.pop
-
-              rpn.push(representation_of[op])
-            else
-              break
-            end
+          if operators.has_key?(op)
+            opSymbol = operators[op][:symbol]
+            rpn.push(opSymbol)
+          else
+            error("Don't know how to push operator #{op}")
           end
-
-          operator_stack.push(symbol)
-          awaiting_value = awaits_value[symbol]
-        elsif awaiting_value
-          # as expected, go straight to the output
-
-          rpn.push(representation_of[symbol])
-          awaiting_value = false
-        else
-          # value catenation
-
-          lexed_infix_expression.unshift(symbol)
-          lexed_infix_expression.unshift(default_operator)
-          awaiting_value = false
         end
+
+        rpn
+      else
+        error("Don't know how to compile #{input.inspect}")
       end
-
-      # pop remaining symbols off the stack and push them
-      while operator_stack.length > 0 do
-        op = operator_stack.pop
-
-        if operators_config.has_key?(op)
-          opSymbol = operators_config[op][:symbol]
-          rpn.push(opSymbol)
-        else
-          error("Don't know how to push operator #{op}")
-        end
-      end
-
-      rpn
     end
 
-    def run (config, rpn)
-      operators = config[:operators]
-      to_value = config[:to_value]
-
-      lambdas = new Hash do |hash, symbol|
-        hash[symbol] = operators[symbol][:lda]
-      end
-
-      stack = []
-
-      lexed_infix_expression.each do |element|
-        if element.is_a? String
-          stack.push(to_value[element])
-        elsif lambdas.has_key?(element)
-          lda = lambdas[:element]
-          arity = lda.arity
-
-          if stack.length < arity
-            error("Not enough values on the stack to use ${element}")
-          else
-            indexed_parameters = []
-
-            arity.times do
-              indexed_parameters.unshift(stack.pop())
-            end
-
-            stack.push(lda.call(*indexed_parameters))
-          end
-        else
-          error("Don't know what to do with ${element}'")
-        end
-      end
-
-      if stack.empty?
-        nil
-      elsif stack.length > 1
-        error("should only be one value to return, but there were ${stack.length} values on the stack")
+    def run (config, input)
+      if input.is_a?(String)
+        run(config, compile(config, lex(config, input)))
+      elsif !input.is_a?(Array)
+        error("Don't know how to run #{input.inspect}")
+      elsif input.length > 1 && input.none? { |element| element.is_a? Symbol }
+        run(config, compile(config, input))
       else
-        stack.first
+        operators = config[:operators]
+        to_value = config[:to_value]
+
+        lambdas = Hash.new do |hash, symbol|
+          hash[symbol] = operators[symbol.to_s][:lda]
+        end
+
+        stack = []
+
+        input.each do |element|
+          if element.is_a?(String)
+            stack.push(to_value[element])
+          elsif element.is_a?(Symbol) && operators.has_key?(element.to_s)
+            lda = lambdas[element]
+            arity = lda.arity
+
+            if stack.length < arity
+              error("Not enough values on the stack to use #{element.inspect}")
+            else
+              indexed_parameters = []
+
+              arity.times do
+                indexed_parameters.unshift(stack.pop())
+              end
+
+              stack.push(lda.call(*indexed_parameters))
+            end
+          else
+            error("Don't know what to do with #{element.inspect}")
+          end
+        end
+
+        if stack.empty?
+          nil
+        elsif stack.length > 1
+          error("should only be one value to return, but there were ${stack.length} values on the stack")
+        else
+          stack.first
+        end
       end
     end
 
@@ -291,4 +306,4 @@ module ShuntingYard
 
 end
 
-ShuntingYard.lex(ShuntingYard::ARITHMETIC, '1 + 2')
+ShuntingYard.run(ShuntingYard::Example::ARITHMETIC, '1 + 2')
