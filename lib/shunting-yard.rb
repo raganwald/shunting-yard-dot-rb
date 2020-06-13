@@ -297,7 +297,7 @@ module ShuntingYard
         }
       },
       default_operator: '*',
-      to_value: lambda { |n| +(n.to_i) }
+      to_value: lambda { |token| +(token.to_i) }
     }
 
     # Compiles a memebership test lambda
@@ -314,7 +314,7 @@ module ShuntingYard
       end
     end
 
-    MEMBERSHIP = {
+    FLAGS = {
       operators: {
         '∩' => {
           type: 'infix',
@@ -327,13 +327,57 @@ module ShuntingYard
           lda: binary_membership(THUNK_UNION)
         }
       },
-      default_operator: '*',
-      to_value: lambda { |symbol| lambda { |flags = {}| flags && !!flags[symbol.to_sym] } }
+      to_value: lambda { |token| lambda { |flags = {}| flags && !!flags[token.to_sym] } }
     }
+
+    flag_test = ShuntingYard.run(ShuntingYard::Example::FLAGS, 'tall ∩ thin ∩ goodlooking')
+    puts flag_test[tall: true, thin: true, goodlooking: true]
+
+    # also a membership test, but we now have paramaterized membership tests, not just
+    # the magic of to_value
+
+    NUMBERS = {
+      operators: {
+        '∩' => {
+          type: 'infix',
+          precedence: 1,
+          lda: binary_membership(THUNK_INTERSECTION)
+        },
+        '∪' => {
+          type: 'infix',
+          precedence: 1,
+          lda: binary_membership(THUNK_UNION)
+        },
+        '<' => {
+          type: 'prefix',
+          precedence: 4,
+          lda: lambda { |comparator| lambda { |number| number < comparator } }
+        },
+        '>' => {
+          type: 'prefix',
+          precedence: 4,
+          lda: lambda { |comparator| lambda { |number| number > comparator } }
+        },
+        '==' => {
+          type: 'prefix',
+          precedence: 4,
+          lda: lambda { |comparator| lambda { |number| number == comparator } }
+        },
+        '%' => {
+          type: 'infix',
+          precedence: 2,
+          lda: lambda { |remainder, modulus | lambda { |number| number % modulus == remainder % modulus } }
+        },
+      },
+      to_value: lambda { |token| token.to_i }
+    }
+
+    number_test = ShuntingYard.run(ShuntingYard::Example::NUMBERS, '>2 ∩ < 5 ∩ 0 % 2')
+    puts number_test[3].inspect
+    puts number_test[4].inspect
+    # puts ({ '1': number_test[1], '2': number_test[2], '3': number_test[3], '4': number_test[4], '5': number_test[5], '6': number_test[6] })
   end
 
 end
 
-membership_test = ShuntingYard.run(ShuntingYard::Example::MEMBERSHIP, 'tall ∩ thin ∩ goodlooking')
 
-membership_test[]
