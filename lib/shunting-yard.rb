@@ -376,6 +376,53 @@ module ShuntingYard
     puts number_test[3].inspect
     puts number_test[4].inspect
     # puts ({ '1': number_test[1], '2': number_test[2], '3': number_test[3], '4': number_test[4], '5': number_test[5], '6': number_test[6] })
+
+    # a technique for creating unary keyword functions
+    # this version uses an infix operator
+    # another technique might be creating functions as first-class objects
+    # and figuring out how to perform "apply"
+
+    KEYWORD_LAMBDAS = {
+      account: lambda { |token| lambda { |properties = {}| properties[:account].to_s == token.to_s } },
+      user: lambda { |token| lambda { |properties = {}| properties[:user].to_s == token.to_s } },
+      service: lambda { |token| lambda { |properties = {}| properties[:service].to_s == token.to_s } }
+    }
+
+    KEYWORDS = {
+      operators: {
+        '∩' => {
+          type: 'infix',
+          precedence: 2,
+          lda: binary_membership(THUNK_INTERSECTION)
+        },
+        '∪' => {
+          type: 'infix',
+          precedence: 2,
+          lda: binary_membership(THUNK_UNION)
+        },
+        ':' => {
+          type: 'infix',
+          precedence: 4,
+          lda: lambda do |keyword, argument|
+            lda = ::ShuntingYard::Example::KEYWORD_LAMBDAS[keyword.to_sym]
+
+            if lda.nil?
+              error("#{keyword} is not a recognized keyword")
+            else
+              lda[argument]
+            end
+          end
+        }
+      },
+      to_value: lambda { |token| token.to_s }
+    }
+
+    keywords_test = ShuntingYard.run(ShuntingYard::Example::KEYWORDS, 'account: 1')
+    puts 'keywords:'
+    puts keywords_test[{account: 1}].inspect
+    puts keywords_test[{account: 2}].inspect
+    puts keywords_test[{account: 3}].inspect
+
   end
 
 end
