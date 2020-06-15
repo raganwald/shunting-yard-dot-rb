@@ -12,11 +12,17 @@ module ShuntingYard
     def lex(config, input)
       error("Don't know how to lex #{input.inspect}") unless input.is_a?(String)
 
-      operators = config[:operators].keys.map(&:to_s)
+      # operators that automatically break symbols apart
+      # TODO: sort by descending order of length for the
+      # purpose of disambiguating the && operator from &,
+      # if we ever want that
+      breaking_operators = config[:operators].keys.select { |key| key.match(/^[a-zA-Z]/).nil? }.map(&:to_s)
       parentheses = ['(', ')']
-      significant_characters = operators.concat(parentheses)
+      significant_characters = breaking_operators.concat(parentheses)
 
       # split on whitespace
+      # TODO: make whitespace breaking configurable?
+      # seems unlikely
       strings = input.split /\s+/
 
       split_strings_on_significant_characters(strings, significant_characters)
@@ -316,6 +322,16 @@ module ShuntingYard
 
     FLAGS = {
       operators: {
+        'and' => {
+          type: 'infix',
+          precedence: 1,
+          lda: binary_membership(THUNK_INTERSECTION)
+        },
+        'or' => {
+          type: 'infix',
+          precedence: 1,
+          lda: binary_membership(THUNK_UNION)
+        },
         '∩' => {
           type: 'infix',
           precedence: 3,
@@ -332,6 +348,13 @@ module ShuntingYard
 
     flag_test = ShuntingYard.run(ShuntingYard::Example::FLAGS, 'tall ∩ thin ∩ goodlooking')
     puts flag_test[tall: true, thin: true, goodlooking: true]
+
+    flag_test2 = ShuntingYard.run(ShuntingYard::Example::FLAGS, 'tall or thin or poor')
+    puts flag_test2[tall: false, thin: false, poor: false]
+    puts flag_test2[tall: true, thin: false, poor: false]
+    puts flag_test2[tall: false, thin: true, poor: false]
+    puts flag_test2[tall: false, thin: false, poor: true]
+    puts flag_test2[tall: true, thin: true, poor: true]
 
     # also a membership test, but we now have paramaterized membership tests, not just
     # the magic of to_value
@@ -375,14 +398,19 @@ module ShuntingYard
     number_test = ShuntingYard.run(ShuntingYard::Example::NUMBERS, '>2 ∩ < 5 ∩ 0 % 2')
     puts number_test[3].inspect
     puts number_test[4].inspect
-    # puts ({ '1': number_test[1], '2': number_test[2], '3': number_test[3], '4': number_test[4], '5': number_test[5], '6': number_test[6] })
+    puts ({ '1': number_test[1], '2': number_test[2], '3': number_test[3], '4': number_test[4], '5': number_test[5], '6': number_test[6] })
 
     # a technique for creating unary keyword functions
     # this version uses an infix operator
     # another technique might be creating functions as first-class objects
     # and figuring out how to perform "apply"
 
-    KEYWORD_LAMBDAS = {
+    NULLARY_LAMBDAS = {
+      disallow: lambda { |*_| false },
+      allow:    lambda { |*_| true  }
+    }
+
+    UNARY_LAMBDAS = {
       account: lambda { |token| lambda { |properties = {}| properties[:account].to_s == token.to_s } },
       user: lambda { |token| lambda { |properties = {}| properties[:user].to_s == token.to_s } },
       service: lambda { |token| lambda { |properties = {}| properties[:service].to_s == token.to_s } }
@@ -400,19 +428,21 @@ module ShuntingYard
           precedence: 2,
           lda: binary_membership(THUNK_UNION)
         },
-        ':' => {
-          type: 'infix',
+        'account:' => {
+          type: 'prefix',
           precedence: 4,
-          lda: lambda do |keyword, argument|
-            lda = ::ShuntingYard::Example::KEYWORD_LAMBDAS[keyword.to_sym]
-
-            if lda.nil?
-              error("#{keyword} is not a recognized keyword")
-            else
-              lda[argument]
-            end
-          end
-        }
+          lda: lambda { |token| lambda { |properties = {}| properties[:account].to_s == token.to_s } }
+        },
+        'user:' => {
+          type: 'prefix',
+          precedence: 4,
+          lda: lambda { |token| lambda { |properties = {}| properties[:user].to_s == token.to_s } }
+        },
+        'service:' => {
+          type: 'prefix',
+          precedence: 4,
+          lda: lambda { |token| lambda { |properties = {}| properties[:service].to_s == token.to_s } }
+        },
       },
       to_value: lambda { |token| token.to_s }
     }
