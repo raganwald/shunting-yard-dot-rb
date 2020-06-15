@@ -48,11 +48,13 @@ module ShuntingYard
         end
 
         type_of = lambda { |symbol| operators.has_key?(symbol) ? operators[symbol][:type] : 'value' }
+        type_of = lambda { |symbol| operators.has_key?(symbol) ? operators[symbol][:type] : 'value' }
 
         is_infix = lambda { |symbol| type_of[symbol]== 'infix' }
         is_prefix = lambda { |symbol| type_of[symbol]== 'prefix' }
         is_postfix = lambda { |symbol| type_of[symbol]== 'postfix' }
-        is_combinator = lambda { |symbol| is_infix[symbol] || is_prefix[symbol] || is_postfix[symbol] }
+        is_nullary = lambda { |symbol| type_of[symbol]== 'none' }
+        is_combinator = lambda { |symbol| is_infix[symbol] || is_prefix[symbol] || is_postfix[symbol] || is_nullary[symbol] }
         is_escape = lambda { |symbol| symbol == escape_token }
         awaits_value = lambda { |symbol| is_infix[symbol] || is_prefix[symbol] }
 
@@ -195,6 +197,8 @@ module ShuntingYard
       else
         operators = config[:operators]
         to_value = config[:to_value]
+
+        puts input.inspect
 
         lambdas = Hash.new do |hash, symbol|
           hash[symbol] = operators[symbol.to_s][:lda]
@@ -405,17 +409,6 @@ module ShuntingYard
     # another technique might be creating functions as first-class objects
     # and figuring out how to perform "apply"
 
-    NULLARY_LAMBDAS = {
-      disallow: lambda { |*_| false },
-      allow:    lambda { |*_| true  }
-    }
-
-    UNARY_LAMBDAS = {
-      account: lambda { |token| lambda { |properties = {}| properties[:account].to_s == token.to_s } },
-      user: lambda { |token| lambda { |properties = {}| properties[:user].to_s == token.to_s } },
-      service: lambda { |token| lambda { |properties = {}| properties[:service].to_s == token.to_s } }
-    }
-
     KEYWORDS = {
       operators: {
         '∩' => {
@@ -443,6 +436,16 @@ module ShuntingYard
           precedence: 4,
           lda: lambda { |token| lambda { |properties = {}| properties[:service].to_s == token.to_s } }
         },
+        'allow' => {
+          type: 'none',
+          precedence: 4,
+          lda: lambda { lambda { |properties = {}| true } }
+        },
+        'disallow' => {
+          type: 'none',
+          precedence: 4,
+          lda: lambda { lambda { |properties = {}| false } }
+        },
       },
       to_value: lambda { |token| token.to_s }
     }
@@ -452,6 +455,12 @@ module ShuntingYard
     puts keywords_test[{account: 1}].inspect
     puts keywords_test[{account: 2}].inspect
     puts keywords_test[{account: 3}].inspect
+
+    keywords_test2 = ShuntingYard.run(ShuntingYard::Example::KEYWORDS, 'allow')
+    puts 'keywords:'
+    puts keywords_test2[{account: 1}].inspect
+    puts keywords_test2[{account: 2}].inspect
+    puts keywords_test2[{account: 3}].inspect
 
   end
 
