@@ -10,7 +10,7 @@ module ShuntingYard
     # config.operators is a dictionary, with each key being an operator
     # this version only supports single-character operators
     def lex(config, input)
-      error("Don't know how to lex #{input.inspect}") unless input.is_a?(String)
+      error(config, "Don't know how to lex #{input.inspect}") unless input.is_a?(String)
 
       # operators that automatically break symbols apart
       # TODO: sort by descending order of length for the
@@ -43,7 +43,7 @@ module ShuntingYard
           elsif something.is_a?(Symbol) || something.is_a?(String)
             something
           else
-            error("#{something} is neither an operator nor a value")
+            error(config, "#{something} is neither an operator nor a value")
           end
         end
 
@@ -64,11 +64,11 @@ module ShuntingYard
 
         while input.length > 0 do
           token = input.shift
-          error("All tokens should be strings, but #{token.inspect} is not") unless token.is_a? String
+          error(config, "All tokens should be strings, but #{token.inspect} is not") unless token.is_a? String
 
           if is_escape[token]
             if input.empty?
-              error('Escape token #{escape_token} has no following token')
+              error(config, 'Escape token #{escape_token} has no following token')
             else
               value_token = input.shift
 
@@ -110,7 +110,7 @@ module ShuntingYard
               operator_stack.pop
               awaiting_value = false
             else
-              error('Unbalanced parentheses')
+              error(config, 'Unbalanced parentheses')
             end
           elsif is_prefix[token]
             if awaiting_value
@@ -177,13 +177,13 @@ module ShuntingYard
           if operators.has_key?(op.to_s)
             rpn.push(representation_of[op])
           else
-            error("Don't know how to push operator #{op}")
+            error(config, "Don't know how to push operator #{op}")
           end
         end
 
         rpn
       else
-        error("Don't know how to compile #{input.inspect}")
+        error(config, "Don't know how to compile #{input.inspect}")
       end
     end
 
@@ -191,7 +191,7 @@ module ShuntingYard
       if input.is_a?(String)
         run(config, compile(config, lex(config, input)))
       elsif !input.is_a?(Array)
-        error("Don't know how to run #{input.inspect}")
+        error(config, "Don't know how to run #{input.inspect}")
       elsif input.length > 1 && input.none? { |element| element.is_a? Symbol }
         run(config, compile(config, input))
       else
@@ -214,7 +214,7 @@ module ShuntingYard
             arity = lda.arity
 
             if stack.length < arity
-              error("Not enough values on the stack to use #{element.inspect}")
+              error(config, "Not enough values on the stack to use #{element.inspect}")
             else
               indexed_parameters = []
 
@@ -225,14 +225,14 @@ module ShuntingYard
               stack.push(lda.call(*indexed_parameters))
             end
           else
-            error("Don't know what to do with #{element.inspect}")
+            error(config, "Don't know what to do with #{element.inspect}")
           end
         end
 
         if stack.empty?
           nil
         elsif stack.length > 1
-          error("should only be one value to return, but there were #{stack.length} values on the stack: #{stack.inspect}")
+          error(config, "should only be one value to return, but there were #{stack.length} values on the stack: #{stack.inspect}")
         else
           stack.first
         end
@@ -241,9 +241,10 @@ module ShuntingYard
 
     private
 
-    def error(message)
-      STDERR.puts message
-      raise message
+    def error(config, message)
+      error_class = config[:error_class] || RuntimeError
+      puts error_class.inspect
+      raise error_class.new(message)
     end
 
     def split_strings_on_significant_characters(strings, characters = [])
@@ -461,6 +462,49 @@ module ShuntingYard
     puts keywords_test2[{account: 1}].inspect
     puts keywords_test2[{account: 2}].inspect
     puts keywords_test2[{account: 3}].inspect
+
+    class TestError < StandardError; end
+
+    NO_ERROR_CLASS = {
+      operators: {
+        'binary' => {
+          type: 'infix',
+          precedence: 1,
+          lda: lambda { |a, b| "#{a} #{b}"}
+        }
+      },
+      to_value: lambda { |token| token.to_s }
+    }
+
+    begin
+      ShuntingYard.run(ShuntingYard::Example::NO_ERROR_CLASS, 'A binary')
+    rescue TestError
+      puts "incorrectly raised a test error"
+    rescue RuntimeError
+      puts "correctly raised a runtime error"
+    end
+
+    class TestError; end
+
+    WITH_ERROR_CLASS = {
+      operators: {
+        'binary' => {
+          type: 'infix',
+          precedence: 1,
+          lda: lambda { |a, b| "#{a} #{b}"}
+        }
+      },
+      to_value: lambda { |token| token.to_s },
+      error_class: TestError
+    }
+
+    begin
+      ShuntingYard.run(ShuntingYard::Example::WITH_ERROR_CLASS, 'A binary')
+    rescue TestError
+      puts "correctly raised a test error"
+    rescue RuntimeError
+      puts "incorrectly raised a runtime error"
+    end
 
   end
 
