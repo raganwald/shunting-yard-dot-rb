@@ -64,6 +64,7 @@ module ShuntingYard
 
         while input.length > 0 do
           token = input.shift
+          puts "token: #{token.inspect}, input: #{input.inspect}, operator_stack: #{operator_stack.inspect}, rpn: #{rpn.inspect}"
           error(config, "All tokens should be strings, but #{token.inspect} is not") unless token.is_a? String
 
           if is_escape[token]
@@ -94,7 +95,7 @@ module ShuntingYard
             # value catenation
 
             input.unshift(token)
-            input.unshift(default_operator)
+            input.unshift(default_operator) if default_operator
             awaiting_value = false
           elsif token == ')'
             # closing parenthesis case, clear the
@@ -135,7 +136,7 @@ module ShuntingYard
               # value catenation
 
               input.unshift(token)
-              input.unshift(default_operator)
+              input.unshift(default_operator) if default_operator
               awaiting_value = false
             end
           elsif is_combinator[token]
@@ -165,7 +166,7 @@ module ShuntingYard
             # value catenation
 
             input.unshift(token)
-            input.unshift(default_operator)
+            input.unshift(default_operator) if default_operator
             awaiting_value = false
           end
         end
@@ -448,20 +449,26 @@ module ShuntingYard
           lda: lambda { lambda { |properties = {}| false } }
         },
       },
-      to_value: lambda { |token| token.to_s }
+      to_value: lambda do |token|
+         token.to_s
+      end
     }
 
-    keywords_test = ShuntingYard.run(ShuntingYard::Example::KEYWORDS, 'account: 1')
     puts 'keywords:'
+    keywords_test = ShuntingYard.run(ShuntingYard::Example::KEYWORDS, 'account: 1')
     puts keywords_test[{account: 1}].inspect
     puts keywords_test[{account: 2}].inspect
     puts keywords_test[{account: 3}].inspect
 
+    puts 'keywords2:'
     keywords_test2 = ShuntingYard.run(ShuntingYard::Example::KEYWORDS, 'allow')
-    puts 'keywords:'
     puts keywords_test2[{account: 1}].inspect
     puts keywords_test2[{account: 2}].inspect
     puts keywords_test2[{account: 3}].inspect
+
+    puts 'binaries:'
+    keywords_test3 = ShuntingYard.run(ShuntingYard::Example::KEYWORDS, 'disallow ∩ disallow')
+    puts keywords_test3[{}].inspect
 
     class TestError < StandardError; end
 
@@ -505,6 +512,42 @@ module ShuntingYard
     rescue RuntimeError
       puts "incorrectly raised a runtime error"
     end
+
+    # ALLOW_DISALLOW = {
+    #   operators: {
+    #     'and' => {
+    #       type: 'infix',
+    #       precedence: 1,
+    #       lda: binary_membership(THUNK_INTERSECTION)
+    #     },
+    #     'or' => {
+    #       type: 'infix',
+    #       precedence: 1,
+    #       lda: binary_membership(THUNK_UNION)
+    #     },
+    #     '∩' => {
+    #       type: 'infix',
+    #       precedence: 3,
+    #       lda: binary_membership(THUNK_INTERSECTION)
+    #     },
+    #     '∪' => {
+    #       type: 'infix',
+    #       precedence: 3,
+    #       lda: binary_membership(THUNK_UNION)
+    #     }
+    #     'allow' => {
+    #       type: 'none',
+    #       precedence: 4,
+    #       lda: lambda { lambda { |*args| true } }
+    #     },
+    #     'disallow' => {
+    #       type: 'none',
+    #       precedence: 4,
+    #       lda: lambda { lambda { |*args| false } }
+    #     },
+    #   },
+    #   to_value: lambda { |token| raise "#{token} isn't allowed in this language" }
+    # }
 
   end
 
