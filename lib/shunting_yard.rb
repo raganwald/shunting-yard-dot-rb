@@ -18,14 +18,16 @@ module ShuntingYard
       # if we ever want that
       breaking_operators = config[:operators].keys.select { |key| key.match(/^[a-zA-Z]/).nil? }.map(&:to_s)
       parentheses = ['(', ')']
-      significant_characters = breaking_operators.concat(parentheses)
+      significant_chunks = breaking_operators.concat(parentheses)
 
       # split on whitespace
       # TODO: make whitespace breaking configurable?
       # seems unlikely
       strings = input.split /\s+/
 
-      split_strings_on_significant_characters(strings, significant_characters)
+      puts "significant_chunks: #{significant_chunks.inspect}"
+
+      split_strings_on_significant_chunks(strings, significant_chunks)
     end
 
     def compile(config, input)
@@ -248,31 +250,31 @@ module ShuntingYard
       raise error_class.new(message)
     end
 
-    def split_strings_on_significant_characters(strings, characters = [])
-      if characters.empty?
+    def split_strings_on_significant_chunks(strings, chunks = [])
+      if chunks.empty?
         strings
       else
-        character = characters.first
-        split_strings_on_significant_characters(
-          strings.flat_map { |str| split_on_a_significant_character(str, character) },
-          characters[1..-1]
+        chunk = chunks.first
+        split_strings_on_significant_chunks(
+          strings.flat_map { |str| split_on_a_significant_chunk(str, chunk) },
+          chunks[1..-1]
         )
       end
     end
 
-    # split the chunks around significant characters
-    # but keep the characters
-    def split_on_a_significant_character(str, character)
+    # split each string around significant chunks,
+    # but keep the chunks
+    def split_on_a_significant_chunk(str, chunk)
       if str.empty?
         []
-      elsif str.start_with?(character)
-        [character].concat(split_on_a_significant_character(str[1..-1], character))
-      elsif str.end_with?(character)
-        split_on_a_significant_character(str[0..-2], character).concat([character])
+      elsif str.start_with?(chunk)
+        [chunk].concat(split_on_a_significant_chunk(str[chunk.size..-1], chunk))
+      elsif str.end_with?(chunk)
+        split_on_a_significant_chunk(str[0..-(chunk.size + 1)], chunk).concat([chunk])
       else
-        chunks = str.split(character)
-        first = chunks.first
-        rest = chunks[1..-1].flat_map { |chunk| [character, chunk] }
+        substrings = str.split(chunk)
+        first = substrings.first
+        rest = substrings[1..-1].flat_map { |substrings| [chunk, substrings] }
         rest.unshift(first)
       end
     end
@@ -513,41 +515,84 @@ module ShuntingYard
       puts "incorrectly raised a runtime error"
     end
 
-    # ALLOW_DISALLOW = {
-    #   operators: {
-    #     'and' => {
-    #       type: 'infix',
-    #       precedence: 1,
-    #       lda: binary_membership(THUNK_INTERSECTION)
-    #     },
-    #     'or' => {
-    #       type: 'infix',
-    #       precedence: 1,
-    #       lda: binary_membership(THUNK_UNION)
-    #     },
-    #     '∩' => {
-    #       type: 'infix',
-    #       precedence: 3,
-    #       lda: binary_membership(THUNK_INTERSECTION)
-    #     },
-    #     '∪' => {
-    #       type: 'infix',
-    #       precedence: 3,
-    #       lda: binary_membership(THUNK_UNION)
-    #     }
-    #     'allow' => {
-    #       type: 'none',
-    #       precedence: 4,
-    #       lda: lambda { lambda { |*args| true } }
-    #     },
-    #     'disallow' => {
-    #       type: 'none',
-    #       precedence: 4,
-    #       lda: lambda { lambda { |*args| false } }
-    #     },
-    #   },
-    #   to_value: lambda { |token| raise "#{token} isn't allowed in this language" }
-    # }
+    class ExpressionError < StandardError; end
+
+    EXPRESSION_LANGUAGE = {
+      operators: {
+        'and' => {
+          type: 'infix',
+          precedence: 1,
+          lda: binary_membership(lambda { |a, b| a[] && b[] })
+        },
+        'or' => {
+          type: 'infix',
+          precedence: 1,
+          lda: binary_membership(lambda { |a, b| a[] || b[] })
+        },
+        '&&' => {
+          type: 'infix',
+          precedence: 2,
+          lda: binary_membership(lambda { |a, b| a[] && b[] })
+        },
+        '||' => {
+          type: 'infix',
+          precedence: 2,
+          lda: binary_membership(lambda { |a, b| a[] || b[] })
+        },
+        'account_feature:' => {
+          type: 'prefix',
+          precedence: 4,
+          lda: lambda do |feature_name|
+            # TODO: check for the existence of the feature at compile time
+            lambda do |account, user, service_id = nil|
+              account.account_features.any? { |feature| feature.feature_name == feature_name.to_sym }
+            end
+          end
+        },
+        'toggle:' => {
+          type: 'prefix',
+          precedence: 4,
+          lda: lambda do |toggle_name|
+            # TODO: check for the existence of the toggle at compile time
+            lambda { |account, user, service_id = nil| TOGGLE_CLASS[toggle_name].active?(account, user, service_id) }
+          end
+        },
+        'subdomain:' => {
+          type: 'prefix',
+          precedence: 4,
+          lda: lambda { |subdomain| lambda { |account, user, service_id = nil| account.subdomain == subdomain } }
+        },
+        'account_id:' => {
+          type: 'prefix',
+          precedence: 4,
+          lda: lambda { |account_id| lambda { |account, user, service_id = nil| account.id.to_s == account_id } }
+        },
+        'user_id:' => {
+          type: 'prefix',
+          precedence: 4,
+          lda: lambda { |user_id| lambda { |account, user, service_id = nil| user.id.to_s == user_id } }
+        },
+        'service_id:' => {
+          type: 'prefix',
+          precedence: 4,
+          lda: lambda { |service_id| lambda { |account, user, service_id = nil| service_id && (service_id.to_s == service_id) } }
+        },
+        'allow' => {
+          type: 'none',
+          precedence: 4,
+          lda: lambda { lambda { |account, user, service_id = nil| true } }
+        },
+        'disallow' => {
+          type: 'none',
+          precedence: 4,
+          lda: lambda { lambda { |account, user, service_id = nil| false } }
+        },
+      },
+      to_value: lambda { |token| token.to_s },
+      error_class: ExpressionError
+    }
+
+    ShuntingYard.lex(ShuntingYard::Example::EXPRESSION_LANGUAGE, 'disallow && disallow')
 
   end
 
