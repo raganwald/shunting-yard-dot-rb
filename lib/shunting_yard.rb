@@ -25,8 +25,6 @@ module ShuntingYard
       # seems unlikely
       strings = input.split /\s+/
 
-      puts "significant_chunks: #{significant_chunks.inspect}"
-
       split_strings_on_significant_chunks(strings, significant_chunks)
     end
 
@@ -66,7 +64,6 @@ module ShuntingYard
 
         while input.length > 0 do
           token = input.shift
-          puts "token: #{token.inspect}, input: #{input.inspect}, operator_stack: #{operator_stack.inspect}, rpn: #{rpn.inspect}"
           error(config, "All tokens should be strings, but #{token.inspect} is not") unless token.is_a? String
 
           if is_escape[token]
@@ -160,16 +157,17 @@ module ShuntingYard
             operator_stack.push(token)
             awaiting_value = awaits_value[token]
           elsif awaiting_value
-            # as expected, go straight to the output
-
             rpn.push(representation_of[token])
+            puts "awaiting value, #{token} -> #{representation_of[token].inspect} -> #{rpn.inspect}"
+            awaiting_value = false
+          elsif default_operator
+            puts "value catenation, unshifting #{token.inspect} #{default_operator.inspect}"
+            input.unshift(token)
+            input.unshift(default_operator)
             awaiting_value = false
           else
-            # value catenation
-
-            input.unshift(token)
-            input.unshift(default_operator) if default_operator
-            awaiting_value = false
+            puts "Unexpected appearance of #{token.inspect}, not awaiting a value"
+            error(config, "Unexpected appearance of #{token}, not awaiting a value")
           end
         end
 
@@ -200,8 +198,6 @@ module ShuntingYard
       else
         operators = config[:operators]
         to_value = config[:to_value]
-
-        puts input.inspect
 
         lambdas = Hash.new do |hash, symbol|
           hash[symbol] = operators[symbol.to_s][:lda]
@@ -246,7 +242,6 @@ module ShuntingYard
 
     def error(config, message)
       error_class = config[:error_class] || RuntimeError
-      puts error_class.inspect
       raise error_class.new(message)
     end
 
@@ -476,7 +471,7 @@ module ShuntingYard
 
     NO_ERROR_CLASS = {
       operators: {
-        'binary' => {
+        'catenate' => {
           type: 'infix',
           precedence: 1,
           lda: lambda { |a, b| "#{a} #{b}"}
@@ -486,7 +481,7 @@ module ShuntingYard
     }
 
     begin
-      ShuntingYard.run(ShuntingYard::Example::NO_ERROR_CLASS, 'A binary')
+      ShuntingYard.run(ShuntingYard::Example::NO_ERROR_CLASS, 'A catenate')
     rescue TestError
       puts "incorrectly raised a test error"
     rescue RuntimeError
@@ -497,7 +492,7 @@ module ShuntingYard
 
     WITH_ERROR_CLASS = {
       operators: {
-        'binary' => {
+        'catenate' => {
           type: 'infix',
           precedence: 1,
           lda: lambda { |a, b| "#{a} #{b}"}
@@ -508,7 +503,15 @@ module ShuntingYard
     }
 
     begin
-      ShuntingYard.run(ShuntingYard::Example::WITH_ERROR_CLASS, 'A binary')
+      ShuntingYard.run(ShuntingYard::Example::WITH_ERROR_CLASS, 'A catenate')
+    rescue TestError
+      puts "correctly raised a test error"
+    rescue RuntimeError
+      puts "incorrectly raised a runtime error"
+    end
+
+    begin
+      ShuntingYard.compile(ShuntingYard::Example::WITH_ERROR_CLASS, 'A B')
     rescue TestError
       puts "correctly raised a test error"
     rescue RuntimeError
@@ -593,6 +596,45 @@ module ShuntingYard
     }
 
     ShuntingYard.lex(ShuntingYard::Example::EXPRESSION_LANGUAGE, 'disallow && disallow')
+
+    MARKDOWN_CONFIG = {
+      operators: {
+        'catenate' => {
+          type: 'infix',
+          precedence: 1,
+          lda: lambda { |a, b| "#{a} #{b}"}
+        },
+        '_' => {
+          type: 'prefix',
+          precedence: 2,
+          lda: lambda { |a| "_#{a}_"}
+        },
+        '**' => {
+          type: 'prefix',
+          precedence: 2,
+          lda: lambda { |a| "**#{a}**"}
+        }
+      },
+      to_value: lambda { |token| token.to_s }
+    }
+
+    puts 'herewego'
+
+    begin
+      ShuntingYard.run(ShuntingYard::Example::MARKDOWN_CONFIG, 'hello world')
+    rescue TestError
+      puts "raised a test error"
+    rescue RuntimeError
+      puts "raised a runtime error"
+    end
+
+    begin
+      ShuntingYard.run(ShuntingYard::Example::MARKDOWN_CONFIG, 'hello _world')
+    rescue TestError
+      puts "raised a test error"
+    rescue RuntimeError
+      puts "raised a runtime error"
+    end
 
   end
 
